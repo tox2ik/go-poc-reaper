@@ -1,23 +1,17 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/shlex"
+	"github.com/tox2ik/go-poc-reaper/fn"
 )
 
-func merge(comm *exec.Cmd) *exec.Cmd {
-	comm.Stdout = os.Stdout
-	comm.Stderr = os.Stdout
-	return comm
-}
-
 func main() {
+
 	args := os.Args[1:]
 	script := args[0:0]
 	if len(args) >= 1 {
@@ -25,61 +19,60 @@ func main() {
 			script = args[1:]
 		}
 	}
-
 	if len(script) == 0 {
-		fmt.Println("cmd: was expexting sh -c 'foobar'")
+		fn.CyanBold("cmd: expecting sh -c 'foobar'")
 		os.Exit(111)
 	}
 
+	var cmd *exec.Cmd
 	parts, _ := shlex.Split(strings.Join(script, " "))
-
-	out := []byte{}
-	var ex error
-
 	if len(parts) >= 2 {
-
-		fmt.Printf("cmd...: %v\n", parts)
-		ex = merge(exec.Command(parts[0], parts[1:]...)).Run()
+		cmd = fn.Merge(exec.Command(parts[0], parts[1:]...), nil)
 	}
-
 	if len(parts) == 1 {
-		fmt.Printf("cmd1: %v\n", parts)
-		ex = merge(exec.Command(parts[0])).Run()
+		cmd = fn.Merge(exec.Command(parts[0]), nil)
 	}
 
-	if len(out) > 0 {
-		fmt.Println("cmd out:" + string(out))
-	}
 
-	if ex != nil {
-		fmt.Printf("cmd err: %s\n", ex)
-	}
-
-	if len(os.Getenv("HANG")) > 0 {
-		n, _ := strconv.Atoi(os.Getenv("HANG"))
-		if n == 0 {
-			n = 2888
+	if fn.IfEnv("HANG") {
+		fn.CyanBold("cmd: %v\n      start", parts)
+		ex := cmd.Start()
+		if ex != nil {
+			fn.CyanBold("cmd %v err: %s", parts, ex)
 		}
-		fmt.Println("cmd: dispatched, hanging forever (i.e. to keep docker running)")
+		go func() {
+			time.Sleep(time.Millisecond * 100)
+			errw := cmd.Wait()
+			if errw != nil {
+				fn.CyanBold("cmd %v err: %s", parts, errw)
+			} else {
+				fn.CyanBold("cmd %v all done.", parts)
+			}
+		}()
+
+		fn.CyanBold("cmd: %v\n      dispatched, hanging forever (i.e. to keep docker running)", parts)
 		for {
-			system("/bin/ps", "-e", "-o", "stat,comm,user,etime,pid,ppid")
-			time.Sleep(time.Millisecond * time.Duration(n))
-			// o, _ := exec.Command().Output()
-			// if len(o) > 0 {
-			//	fmt.Printf(string(o))
-			// }
-
+			time.Sleep(time.Millisecond * time.Duration(fn.EnvInt("HANG", 2888)))
+			fn.SystemCyan("/bin/ps", "-e", "-o", "stat,comm,user,etime,pid,ppid")
 		}
+
+
 	} else {
-		fmt.Printf("cmd dispatched, exit docker.\n")
+
+		if fn.IfEnv("NOWAIT") {
+			ex := cmd.Start()
+			if ex != nil {
+				fn.CyanBold("cmd %v start err: %s", parts, ex)
+			}
+		} else {
+
+			ex := cmd.Run()
+			if ex != nil {
+				fn.CyanBold("cmd %v run err: %s", parts, ex)
+			}
+		}
+		fn.CyanBold("cmd %v\n      dispatched, exit docker.", parts)
 	}
 
-}
-
-func system(comm string, arg ...string) {
-	cmd := merge(exec.Command(comm, arg...))
-	err := cmd.Run()
-	if err != nil {
-		fmt.Printf("%#v", err)
-	}
+	//time.Sleep(time.Millisecond * 100)
 }

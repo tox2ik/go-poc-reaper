@@ -17,7 +17,8 @@ COPY bin/fork-if     /bin/fork-if
 #ENTRYPOINT /bin/find
 
 
-COPY --from=busybox:latest /bin/find /bin/find
-COPY --from=busybox:latest /bin/ps /bin/ps
-COPY --from=busybox:latest /bin/ls /bin/ls
+COPY --from=busybox:latest /bin/find    /bin/find
+COPY --from=busybox:latest /bin/ls      /bin/ls
+COPY --from=busybox:latest /bin/ps      /bin/ps
+COPY --from=busybox:latest /bin/killall /bin/killall
 #COPY --from=busybox:latest /bin/sh /bin/ash

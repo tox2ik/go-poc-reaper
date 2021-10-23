@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/tox2ik/go-poc-reaper/fn"
 )
 
 type Opt struct {
@@ -19,7 +21,7 @@ type Opt struct {
 	Args    []string
 }
 
-func opts(input []string) (Opt, []string) {
+func newOpt(input []string) (Opt, []string) {
 
 	uid := 1512
 	logPath := fmt.Sprintf("/tmp/logfile.%d", uid)
@@ -79,53 +81,40 @@ func opts(input []string) (Opt, []string) {
 	}, tail
 }
 
-func getOpts() []Opt {
+func opts() []Opt {
 	var rtt []Opt
 	var o Opt
 
 	aa := os.Args[1:]
 	for len(aa) > 0 {
-		o, aa = opts(aa)
+		o, aa = newOpt(aa)
 		rtt = append(rtt, o)
 	}
 	return rtt
 }
 
-func info(format string, v ...interface{}) {
-	println(fmt.Sprintf(format, v...))
-}
 
-func dump(rtt []Opt) {
-	for _, rt := range rtt {
-		s := fmt.Sprintf("%#v", rt)
-		s = strings.ReplaceAll(s, " ", "\n   ")
-		fmt.Printf("%s\n", s)
-	}
 
-}
 
 func openLog(rt Opt) *os.File {
 	tmpLog, errf := os.OpenFile(rt.LogPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 	if errf != nil {
-		info("can not log to %s: %s\n%#v", rt.LogPath, errf, errf)
+		fn.Magenta("can not log to %s: %s\n%#v", rt.LogPath, errf, errf)
 		os.Exit(2)
 	}
 	errch := os.Chown(rt.LogPath, rt.Uid, rt.Uid)
 	if errch != nil {
-		info("chown %#v", errch)
+		fn.Magenta("chown %#v", errch)
 	}
 	return tmpLog
 }
 
-func ifEnv(s string) bool {
-	return len(os.Getenv(s)) > 0
-}
 
 func main() {
 
-	rtt := getOpts()
+	rtt := opts()
 
-	donec := make(chan bool)
+	donec := make(chan string)
 	wa := len(rtt)
 	wg := sync.WaitGroup{}
 	wg.Add(wa)
@@ -134,24 +123,26 @@ func main() {
 
 		pid, errSub := Daemonish(rt.Binary, rt.Args, rt.Uid, openLog(rt), &donec)
 		if errSub != nil {
-			info("main() ERROR:\n%s", errSub)
+			fn.Magenta("main() ERROR:\n%s", errSub)
 			os.Exit(3)
 		} else {
-			info("main() Daemon away! %d (%s)", pid, rt.Binary)
+			fn.Magenta("main() Daemon away! %d (%s)", pid, rt.Binary)
 		}
+
+		fn.SystemCyan("/bin/ps", "-e", "-o", "stat,comm,user,etime,pid,ppid")
 	}
 
-	if ifEnv("CRASH") {
-		info("main() CRASH imminent")
+	if fn.IfEnv("CRASH") {
+		fn.Magenta("main() CRASH imminent")
 		println(exec.Command("foo").Process.Pid) // null pointer
 	}
 
-	if ifEnv("ABORT") {
+	if fn.IfEnv("ABORT") {
 		// don't wait for subprocess after all
 		go func(subprocs int) {
-			n, _ := strconv.Atoi(os.Getenv("ABORT"))
+			n := fn.EnvInt("ABORT", 0)
 			if n > 0 {
-				info("main() ABORT in %d", n)
+				fn.Magenta("main() ABORT in %d", n)
 				time.Sleep(time.Second * time.Duration(n))
 				for subprocs > 0 {
 					wg.Done()
@@ -164,54 +155,61 @@ func main() {
 
 	go func() {
 		for {
-			// time.Sleep(time.Millisecond * 777)
-			info("main(1) select on done channel")
+			fn.Magenta("main(1) select on done channel")
 			select {
-			case ok := <-donec:
+			case sub := <-donec:
 				wg.Done()
-				info("main(1) select on done channel: %t", ok)
+				fn.Magenta("main(1) select on done channel: %s", sub)
 			}
 		}
 	}()
 
-	info("main() waiting for children")
+	fn.Magenta("main() waiting for children")
 	wg.Wait()
-	info("main() done.")
+	fn.Magenta("main() done.")
 
 }
 
-func Daemonish(bin string, args []string, uid int, log *os.File, c *chan bool) (int, error) {
+func Daemonish(bin string, args []string, uid int, log *os.File, c *chan string) (int, error) {
 	cmd := exec.Command(bin, args...)
 	cmd.Stdout = log
 
 	if os.Getuid() == 0 {
-		info("subp() setuid %d", uid)
+		fn.Magenta("subp() setuid %d", uid)
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			Credential: &syscall.Credential{
 				Gid: uint32(uid),
 				Uid: uint32(uid)}}
 	} else {
 		if uid != os.Getuid() {
-			info("must be root to change process uid.")
+			fn.Magenta("must be root to change process uid.")
 		}
 	}
 
 	err := cmd.Start()
 	if err != nil {
-		// fmt.Printf("PERM %t\n", errors.Is(err, os.ErrPermission))
+		*c <- "FAIL " + cmd.String()
 		return -1, fmt.Errorf(
 			"command failed: %s\nFAILURE %#v\n%s",
 			cmd.String(), err, err)
 	}
 
 	go func() {
-		info("subp() cmd.Wait() [%s]", cmd.String())
+		fn.Magenta("subp() cmd.Wait() [%s]", cmd.String())
 		err := cmd.Wait() // Wait is necessary so cmd doesn't become a zombie
-		info("subp() cmd.Wait() [%s] DONE", bin)
-		*c <- true
+		fn.Magenta("subp() cmd.Wait() [%s] DONE", bin)
+		*c <- "OK " + cmd.String()
 		if err != nil {
 			fmt.Printf("go func() Wait err: %s\n", err)
 		}
 	}()
 	return cmd.Process.Pid, nil
+}
+
+func dump(rtt []Opt) {
+	for _, rt := range rtt {
+		s := fmt.Sprintf("%#v", rt)
+		s = strings.ReplaceAll(s, " ", "\n   ")
+		fmt.Printf("%s\n", s)
+	}
 }

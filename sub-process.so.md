@@ -39,6 +39,46 @@ The last one is hard to reproduce, but I have heard about this problem in the do
 
 ---
 
+### Case 5
+
+    STAT COMMAND          USER     ELAPSED PID   PPID
+    S    sh               0         0:01       1     0
+    S    zleep            3         0:01      16     1
+    Z    fork-if          3         0:01      17     1
+    R    fork-child-A     3         0:01      18     1
+    R    fork-child-B     3         0:01      21    18
+    S    fork-child-C     3         0:01      25    21
+    S    fork-daemon      3         0:01      26    25
+    R    ps               0         0:01      27     1
+    STAT COMMAND          USER     ELAPSED PID   PPID
+    S    sh               0         0:02       1     0
+    S    zleep            3         0:02      16     1
+    Z    fork-if          3         0:02      17     1
+    Z    fork-child-A     3         0:02      18     1
+    R    fork-child-B     3         0:02      21     1
+    S    fork-child-C     3         0:02      25    21
+    S    fork-daemon      3         0:02      26    25
+    R    ps               0         0:01      28     1
+    STAT COMMAND          USER     ELAPSED PID   PPID
+    S    sh               0         0:03       1     0
+    S    zleep            3         0:03      16     1
+    Z    fork-if          3         0:03      17     1
+    Z    fork-child-A     3         0:03      18     1
+    R    fork-child-B     3         0:03      21     1
+    S    fork-child-C     3         0:03      25    21
+    S    fork-daemon      3         0:03      26    25
+    R    ps               0         0:01      29     1
+    STAT COMMAND          USER     ELAPSED PID   PPID
+    S    sh               0         0:03       1     0
+    Z    zleep            3         0:03      16     1
+    Z    fork-if          3         0:03      17     1
+    Z    fork-child-A     3         0:03      18     1
+    R    fork-child-B     3         0:03      21     1
+    S    fork-child-C     3         0:03      25    21
+    S    fork-daemon      3         0:03      26    25
+    R    ps               0         0:01      30     1
+
+
 ### Demo
 
 
@@ -69,8 +109,9 @@ Related discussions:
 
 Relevant projects:
 
-- https://github.com/sevlyar/go-daemon
-- http://software.clapper.org/daemonize/
+- http://software.clapper.org/daemonize/ (what I would use)
+- https://github.com/hashicorp/go-reap (if you must have run go on pid 1)
+- https://github.com/sevlyar/go-daemon (mimics posix fork)
 
 
 Relevant prose:
