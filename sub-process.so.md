@@ -61,40 +61,24 @@ The gist of it is we start two sub-processes from go, using the "parent" `sub-pr
 Since this simple implementation of sh does not know how to deal with abandoned children, the children become zombies.
 This is standard behavior. To avoid this, [init systems are usually responsible](https://github.com/krallin/tini) for cleaning up any such children.
 
+Check out this repo and run the cases:
 
-    $ make case5
-    (...)
-    subp() setuid 3
+
+    $ make prep build
+    $ make prep build2
+
+The first one will use the simple /bin/sh in the docker container, and the socond one will use the same code wrapped in a reaper.
+
+With zombies:
+
+    $ make prep build case5
+    (…)
     main() Daemon away! 16 (/bin/zleep)
-    subp() cmd.Wait() [/bin/zleep 111 2]
-    STAT COMMAND          USER     ELAPSED PID   PPID
-    S    sh               0         0:01       1     0
-    S    sub-process      0         0:01      11     1
-    R    zleep            3         0:01      16    11
-    R    ps               0         0:01      17    11
-    subp() setuid 3
     main() Daemon away! 22 (/bin/fork-if)
-    subp() cmd.Wait() [/bin/fork-if]
-    Hello from Parent!      25      -3      -3      -3
-    Hello from Parent!       0      26      -3      -3
-    Hello from Parent!       0       0      27      -3
-    Hello from Parent!       0       0       0      28
-    fork.main() wait! 0 0 0 28
-    daemon 1
-    STAT COMMAND          USER     ELAPSED PID   PPID
-    S    sh               0         0:01       1     0
-    S    sub-process      0         0:01      11     1
-    S    zleep            3         0:01      16    11
-    R    fork-if          3         0:01      22    11
-    R    ps               0         0:01      24    11
-    R    fork-child-A     3         0:01      25    22
-    R    fork-child-B     3         0:01      26    25
-    S    fork-child-C     3         0:01      27    26
-    S    fork-daemon      3         0:01      28    27
+    (…)
     main() CRASH imminent
     panic: runtime error: invalid memory address or nil pointer dereference
     [signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x49e45c]
-
     goroutine 1 [running]:
     main.main()
         /home/jaroslav/src/my/go/doodles/sub-process/sub-process.go:137 +0xfc
@@ -113,25 +97,7 @@ This is standard behavior. To avoid this, [init systems are usually responsible]
     Child '2' done
     thread done
     daemon
-    STAT COMMAND          USER     ELAPSED PID   PPID
-    S    sh               0         0:03       1     0
-    S    zleep            3         0:03      16     1
-    Z    fork-if          3         0:03      22     1
-    Z    fork-child-A     3         0:03      25     1
-    R    fork-child-B     3         0:03      26     1
-    S    fork-child-C     3         0:03      27    26
-    S    fork-daemon      3         0:03      28    27
-    R    ps               0         0:01      31     1
-    STAT COMMAND          USER     ELAPSED PID   PPID
-    S    sh               0         0:03       1     0
-    S    zleep            3         0:03      16     1
-    Z    fork-if          3         0:03      22     1
-    Z    fork-child-A     3         0:03      25     1
-    R    fork-child-B     3         0:03      26     1
-    S    fork-child-C     3         0:03      27    26
-    S    fork-daemon      3         0:03      28    27
-    R    ps               0         0:01      32     1
-    daemon
+    (…)
     STAT COMMAND          USER     ELAPSED PID   PPID
     R    sh               0         0:04       1     0
     Z    zleep            3         0:04      16     1
@@ -141,13 +107,64 @@ This is standard behavior. To avoid this, [init systems are usually responsible]
     S    fork-child-C     3         0:04      27    26
     S    fork-daemon      3         0:04      28    27
     R    ps               0         0:01      33     1
-    busybox grep -e. -c log/case5 | busybox grep -q ^19$
-    busybox grep ^done log/case5
-    done.
+    (…)
+
+With reaper:
+
+    $ make -C ~/src/my/go/doodles/sub-process case5
+    (…)
+    main() CRASH imminent
+    (…)
+    Child '1' done
+    thread done
+    raeper pid 24
+    STAT COMMAND          USER     ELAPSED PID   PPID
+    S    sh               0         0:02       1     0
+    S    zleep            3         0:01      18     1
+    R    fork-child-A     3         0:01      27     1
+    R    fork-child-B     3         0:01      28    27
+    S    fork-child-C     3         0:01      30    28
+    S    fork-daemon      3         0:01      31    30
+    R    ps               0         0:01      32     1
+    Child '2' done
+    thread done
+    raeper pid 27
+    daemon
+    STAT COMMAND          USER     ELAPSED PID   PPID
+    S    sh               0         0:03       1     0
+    S    zleep            3         0:02      18     1
+    R    fork-child-B     3         0:02      28     1
+    S    fork-child-C     3         0:02      30    28
+    S    fork-daemon      3         0:02      31    30
+    R    ps               0         0:01      33     1
+    STAT COMMAND          USER     ELAPSED PID   PPID
+    S    sh               0         0:03       1     0
+    S    zleep            3         0:02      18     1
+    R    fork-child-B     3         0:02      28     1
+    S    fork-child-C     3         0:02      30    28
+    S    fork-daemon      3         0:02      31    30
+    R    ps               0         0:01      34     1
+    raeper pid 18
+    daemon
+    STAT COMMAND          USER     ELAPSED PID   PPID
+    S    sh               0         0:04       1     0
+    R    fork-child-B     3         0:03      28     1
+    S    fork-child-C     3         0:03      30    28
+    S    fork-daemon      3         0:03      31    30
+    R    ps               0         0:01      35     1
+    (…)
+
 
 Here is a picture of the same output, which may be less confusing to read.
 
-    INSERT PIC HEARE
+
+Zombies
+
+![Case5 - zombies](https://raw.githubusercontent.com/tox2ik/go-poc-reaper/main/.case5-simple.webp)
+
+Reaper
+
+![Case5 - reaper](https://raw.githubusercontent.com/tox2ik/go-poc-reaper/main/.case5-reaper.webp)
 
 ### Case5 (reaper /bin/sh)
 
