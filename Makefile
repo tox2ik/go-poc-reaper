@@ -1,18 +1,3 @@
-main: prep build case5
-
-test: prep build
-	$(MAKE) case0 case1 case2 case3 case4 case5
-run: build
-	@echo
-	go run sub-process.go /dev/stdout $(uid) bin/zleep
-build: zleep sub simple fork
-	/bin/mkdir -p bin
-	touch log/.keep
-	docker build -q -t sp .
-fork:   ; gcc fork-if.c -o bin/fork-if -static -std=gnu99 -pthread -D_GNU_SOURCE
-simple: ; go build -o bin/sh           sh.go
-zleep:  ; go build -o bin/zleep        sleep.go
-sub:    ; go build -o bin/sub-process  sub-process.go
 
 ps = busybox ps
 awk = busybox awk
@@ -20,6 +5,22 @@ grep = busybox grep
 mkdir = busybox mkdir
 timeo = busybox timeout
 trunk = busybox truncate -s0
+
+
+main: prep build case6
+test: prep case0 case1 case2 case3 case4 case5 case6
+build: simple zleep sub fork ctrl-c zignal image
+build2: reaper zleep sub fork ctrl-c zignal image
+image:      ; docker build -q -t sp .
+fork:   bin ; gcc fork-if.c -o bin/fork-if -static -std=gnu99 -pthread -D_GNU_SOURCE
+simple: bin ; go build -o bin/sh           sh.go
+reaper: bin ; go build -o bin/sh           reaper.go
+zleep:  bin ; go build -o bin/zleep        sleep.go
+ctrl-c: bin ; go build -o bin/ctrl-c       ctrl-c.go
+zignal: bin ; go build -o bin/zignal       signal.go
+sub:    bin ; go build -o bin/sub-process  sub-process.go
+bin: ; $(mkdir) -p bin
+
 
 uid = $(shell id -u)
 here = $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
@@ -97,7 +98,7 @@ case6:
 	@{ sleep 2; \
 	  container=$$(docker container ls -a \
 	      --format '{{ .State }} {{ .Image }} {{ .Names }} ' \
-		  | $(awk) '/^running sp/{ print $$3 }'); \
+		  | $(awk) '/^running $(dimg)/{ print $$3 }'); \
 	  docker exec -i -e NOWAIT=1 -e HANG='' $${container} sh -c 'killall sub-process'; \
 	} &
 	$(timeo) 4s \
@@ -105,8 +106,31 @@ case6:
       -e HANG=1200 $(dimg) /bin/sh -c  \
       '/bin/sub-process /log/$@ 3 /bin/zleep 888 10 -- /dev/stderr 3 /bin/fork-if --'
 
-	#$(grep) -e. -c log/$@ | $(grep) -q ^19$$
-	#$(grep) ^done log/$@
+# Demonstrates how signals travel from parent to child
+signs = SIGTERM SIGTERM SIGINT SIGHUP
+case7:
+	{ let i=5; \
+      while [[ i -gt 0 ]]; do \
+        let i=i-1; \
+	    sleep 1; \
+	  for s in $(signs); do \
+		  pidof ctrl-c | xargs -r kill -$$s ;  \
+	  done; done; \
+	  sleep 3; killall -s KILL ctrl-c ; killall -s KILL zignal ; \
+	} &
+	@echo
+	./bin/ctrl-c
+
+case8:
+	{ sleep 6 && killall -s KILL zignal; } &
+	./bin/ctrl-c &
+	sleep 2; killall -s TERM ctrl-c
+	sleep 1; killall -s TERM ctrl-c
+	sleep 1; killall -s TERM ctrl-c
+	sleep 1; killall -s KILL ctrl-c
+
+
+
 
 dcon = spc
 dimg = sp
@@ -129,5 +153,7 @@ fork-stop:
 	@killall fork-child-A || true
 	@killall fork-child-B || true
 	@killall fork-child-C || true
+	@killall -s KILL ctrl-c  || true
+	@killall -s KILL zignal  || true
 fork-restart: fork-stopstop
 	make fork-if && ./fork-if
